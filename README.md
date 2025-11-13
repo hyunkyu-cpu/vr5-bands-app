@@ -11,7 +11,35 @@
 - **일정 관리**: 2주 후 점검 일정을 ICS 파일로 내보내기
 - **차트 시각화**: 최근 6개월 TQQQ 종가 추이 확인
 
-## 설치 방법
+## 웹앱 배포 (온라인 접속)
+
+이 앱은 **Streamlit Community Cloud**에 무료로 배포할 수 있습니다!
+
+### 배포 방법
+
+1. **GitHub에 코드 업로드**
+   ```bash
+   # GitHub에서 새 저장소 생성 후
+   git remote add origin https://github.com/YOUR_USERNAME/vr5-bands-app.git
+   git branch -M main
+   git push -u origin main
+   ```
+
+2. **Streamlit Community Cloud 배포**
+   - [share.streamlit.io](https://share.streamlit.io)에 접속
+   - GitHub 계정으로 로그인
+   - "New app" 클릭
+   - 저장소 선택: `YOUR_USERNAME/vr5-bands-app`
+   - Main file path: `app.py`
+   - "Deploy" 클릭
+
+3. **완료!**
+   - 몇 분 후 `https://YOUR-APP-NAME.streamlit.app` 형태의 URL로 접속 가능
+   - 어디서든 웹브라우저로 접속하여 사용 가능
+
+## 로컬 설치 및 실행
+
+컴퓨터에서 직접 실행하려면:
 
 ### 1. 의존성 설치
 
