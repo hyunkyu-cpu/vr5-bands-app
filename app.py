@@ -1,6 +1,6 @@
 """
 VR 5.0 TQQQ 리밸런싱 도우미 (격주)
-Streamlit 메인 애플리케이션
+Streamlit 메인 애플리케이션 - 영구 저장 및 매수/매도 로그 기능
 """
 
 import streamlit as st
@@ -9,8 +9,11 @@ import pandas as pd
 from datetime import datetime
 import traceback
 
-from utils.vr import compute_values, decide_action, format_action_badge
-from utils.io import append_log, read_log, make_biweekly_ics, get_csv_download_data
+from utils.vr import compute_values, decide_action, format_action_badge, project_path
+from utils.io import (
+    save_state, load_state, append_log, read_log,
+    append_trade, read_trades, make_biweekly_ics, get_csv_download_data
+)
 
 
 # 페이지 설정
@@ -20,38 +23,32 @@ st.set_page_config(
     layout="wide"
 )
 
-# 세션 상태 초기화
-if 'save_defaults' not in st.session_state:
-    st.session_state.save_defaults = False
 
-if 'default_values' not in st.session_state:
-    st.session_state.default_values = {
-        'ticker': 'TQQQ',
-        'd': 11.0,
-        'band': 0.15,
-        'contrib': 0.0
-    }
+# 기본값 정의
+DEFAULTS = {
+    'ticker': 'TQQQ',
+    'shares': 500,
+    'pool': 10000.0,
+    'v_prev': 25000.0,
+    'd': 11.0,
+    'band': 0.15,
+    'contrib': 0.0,
+    'current_price': None,
+    'last_update': None,
+    'last_calc_result': None
+}
 
-if 'current_price' not in st.session_state:
-    st.session_state.current_price = None
 
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = None
+# 세션 상태 초기화 (영구 저장에서 불러오기)
+if 'initialized' not in st.session_state:
+    loaded = load_state(DEFAULTS)
+    for key, value in loaded.items():
+        st.session_state[key] = value
+    st.session_state.initialized = True
 
 
 def get_current_price(ticker: str) -> float:
-    """
-    yfinance로 현재 주가 조회
-
-    Args:
-        ticker: 티커 심볼
-
-    Returns:
-        현재 종가
-
-    Raises:
-        Exception: 데이터 조회 실패 시
-    """
+    """yfinance로 현재 주가 조회"""
     try:
         stock = yf.Ticker(ticker)
         data = stock.history(period='1d')
@@ -67,10 +64,10 @@ def get_current_price(ticker: str) -> float:
 
 # 타이틀
 st.title("📊 VR 5.0 TQQQ 리밸런싱 도우미 (격주)")
-st.markdown("**라오어 변동성 리밸런싱 전략 - 2주마다 점검**")
+st.markdown("**라오어 변동성 리밸런싱 전략 - 2주마다 점검 | 영구 저장 기능**")
 
 # 실시간 가격 표시
-ticker_for_price = st.session_state.default_values.get('ticker', 'TQQQ')
+ticker_for_price = st.session_state.get('ticker', 'TQQQ')
 
 # 자동으로 가격 조회 (페이지 로드 시)
 try:
@@ -105,19 +102,12 @@ except Exception as e:
 st.divider()
 
 
-# 사이드바 - 기본값 저장 옵션
+# 사이드바
 with st.sidebar:
     st.header("⚙️ 설정")
-
-    save_defaults = st.checkbox(
-        "기본값 저장",
-        value=st.session_state.save_defaults,
-        help="체크하면 입력한 값을 세션에 저장합니다"
-    )
-    st.session_state.save_defaults = save_defaults
-
+    st.info("💡 **영구 저장**\n\n모든 입력값과 로그는 자동으로 저장되어 앱 재시작 후에도 유지됩니다.")
     st.divider()
-    st.info("💡 **사용법**\n\n1. 좌측에 현재 포트폴리오 정보 입력\n2. 계산 버튼 클릭\n3. 우측에서 매수/매도 판단 확인\n4. 로그 저장 및 다운로드")
+    st.caption("📊 차트 페이지에서 과거 가격과 미래 프로젝션을 확인하세요!")
 
 
 # 좌우 컬럼 레이아웃
@@ -130,7 +120,7 @@ with col_left:
     # 기본 파라미터
     ticker = st.text_input(
         "티커",
-        value=st.session_state.default_values['ticker'],
+        value=st.session_state.get('ticker', 'TQQQ'),
         help="기본값: TQQQ"
     )
 
@@ -140,7 +130,7 @@ with col_left:
         shares = st.number_input(
             "보유 수량 (주)",
             min_value=0,
-            value=500,
+            value=st.session_state.get('shares', 500),
             step=1,
             help="현재 보유한 주식 수"
         )
@@ -148,7 +138,7 @@ with col_left:
         v_prev = st.number_input(
             "직전 목표 Value ($)",
             min_value=0.0,
-            value=25000.0,
+            value=st.session_state.get('v_prev', 25000.0),
             step=100.0,
             help="이전 리밸런싱 시점의 목표 가치"
         )
@@ -157,7 +147,7 @@ with col_left:
             "밴드폭 (±)",
             min_value=0.01,
             max_value=0.50,
-            value=st.session_state.default_values['band'],
+            value=st.session_state.get('band', 0.15),
             step=0.01,
             format="%.2f",
             help="리밸런싱 밴드 비율 (기본값: 0.15 = ±15%)"
@@ -167,7 +157,7 @@ with col_left:
         pool = st.number_input(
             "POOL 현금 ($)",
             min_value=0.0,
-            value=10000.0,
+            value=st.session_state.get('pool', 10000.0),
             step=100.0,
             help="현재 보유 현금"
         )
@@ -175,7 +165,7 @@ with col_left:
         d = st.number_input(
             "분모 d (공격성)",
             min_value=1.0,
-            value=st.session_state.default_values['d'],
+            value=st.session_state.get('d', 11.0),
             step=0.5,
             help="공격성 조절 파라미터 (기본값: 11)"
         )
@@ -183,17 +173,10 @@ with col_left:
         contrib = st.number_input(
             "2주 적립금 ($)",
             min_value=0.0,
-            value=st.session_state.default_values['contrib'],
+            value=st.session_state.get('contrib', 0.0),
             step=100.0,
             help="2주간 추가 입금 예정 금액 (거치식은 0)"
         )
-
-    # 기본값 저장
-    if st.session_state.save_defaults:
-        st.session_state.default_values['ticker'] = ticker
-        st.session_state.default_values['d'] = d
-        st.session_state.default_values['band'] = band
-        st.session_state.default_values['contrib'] = contrib
 
     st.divider()
 
@@ -227,7 +210,49 @@ with col_right:
             action_info = decide_action(vals, current_price)
             action_badge = format_action_badge(action_info)
 
-            # 3. 결과 표시 - 액션 배지
+            # 3. 상태 저장 (영구 저장)
+            state_to_save = {
+                'ticker': ticker,
+                'shares': shares,
+                'pool': pool,
+                'v_prev': v_prev,
+                'd': d,
+                'band': band,
+                'contrib': contrib,
+                'current_price': current_price,
+                'last_update': datetime.now().isoformat(),
+                'last_calc_result': {
+                    'vals': vals,
+                    'action_info': action_info
+                }
+            }
+            save_state(state_to_save)
+            st.session_state.update(state_to_save)
+
+            # 4. 로그 저장
+            log_row = {
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'ticker': ticker,
+                'price': current_price,
+                'PV': vals['pv'],
+                'V_next': vals['v_next'],
+                'band_low': vals['low'],
+                'band_high': vals['high'],
+                'action': action_info['action'],
+                'qty': action_info['qty'],
+                'amount': action_info['amount'],
+                'r': vals['r'],
+                'band': band,
+                'contrib': contrib,
+                'pool': pool,
+                'shares': shares,
+                'd': d
+            }
+            append_log(log_row)
+
+            st.toast("✅ 자동 저장 완료!", icon="💾")
+
+            # 5. 결과 표시 - 액션 배지
             st.divider()
 
             if action_info['action'] == 'BUY':
@@ -237,7 +262,7 @@ with col_right:
             else:
                 st.info(f"### ⚪ {action_badge}")
 
-            # 4. 메트릭 카드
+            # 6. 메트릭 카드
             st.divider()
 
             metric_col1, metric_col2, metric_col3 = st.columns(3)
@@ -255,7 +280,7 @@ with col_right:
                 if action_info['action'] != 'HOLD':
                     st.metric("거래 금액", f"${action_info['amount']:,.2f}")
 
-            # 5. 상세 정보 테이블
+            # 7. 상세 정보 테이블
             st.divider()
             st.markdown("#### 📋 상세 정보")
 
@@ -276,44 +301,20 @@ with col_right:
 
             st.dataframe(result_df, use_container_width=True, hide_index=True)
 
-            # 6. 로그 저장
+            # 8. ICS 다운로드
             st.divider()
 
-            col_save, col_download = st.columns(2)
-
-            with col_save:
-                if st.button("💾 로그 저장", use_container_width=True):
-                    try:
-                        log_row = {
-                            'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'price': current_price,
-                            'pv': vals['pv'],
-                            'v_next': vals['v_next'],
-                            'low': vals['low'],
-                            'high': vals['high'],
-                            'action': action_info['action'],
-                            'qty': action_info['qty'],
-                            'amount': action_info['amount']
-                        }
-
-                        append_log(log_row)
-                        st.success("✅ 로그가 저장되었습니다!")
-
-                    except Exception as e:
-                        st.error(f"❌ 로그 저장 실패: {str(e)}")
-
-            with col_download:
-                try:
-                    ics_data = make_biweekly_ics()
-                    st.download_button(
-                        label="📅 ICS 일정 다운로드",
-                        data=ics_data,
-                        file_name=f"vr_reminder_{datetime.now().strftime('%Y%m%d')}.ics",
-                        mime="text/calendar",
-                        use_container_width=True
-                    )
-                except Exception as e:
-                    st.error(f"❌ ICS 생성 실패: {str(e)}")
+            try:
+                ics_data = make_biweekly_ics()
+                st.download_button(
+                    label="📅 ICS 일정 다운로드 (2주 후 점검)",
+                    data=ics_data,
+                    file_name=f"vr_reminder_{datetime.now().strftime('%Y%m%d')}.ics",
+                    mime="text/calendar",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"❌ ICS 생성 실패: {str(e)}")
 
         except Exception as e:
             st.error(f"❌ 오류 발생: {str(e)}")
@@ -326,35 +327,86 @@ with col_right:
         st.info("👈 좌측에 정보를 입력하고 '계산하기' 버튼을 눌러주세요")
 
 
-# 하단: 로그 히스토리
+# 하단: 체결 등록 폼
 st.divider()
-st.subheader("📜 리밸런싱 로그 히스토리")
+st.subheader("💼 체결 등록")
+
+with st.expander("📝 실제 거래를 체결했을 때 기록하세요"):
+    col_trade1, col_trade2, col_trade3, col_trade4 = st.columns(4)
+
+    with col_trade1:
+        trade_side = st.selectbox("거래 유형", ["BUY", "SELL"])
+
+    with col_trade2:
+        trade_qty = st.number_input("수량 (주)", min_value=1, value=1, step=1)
+
+    with col_trade3:
+        trade_price = st.number_input("체결 가격 ($)", min_value=0.01, value=100.0, step=0.01, format="%.2f")
+
+    with col_trade4:
+        trade_note = st.text_input("메모 (선택)", value="")
+
+    if st.button("✅ 체결 기록 저장", type="primary"):
+        try:
+            append_trade(trade_side, trade_qty, trade_price, trade_note)
+            st.success(f"✅ {trade_side} {trade_qty}주 @ ${trade_price:.2f} 체결 기록 저장 완료!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ 체결 기록 저장 실패: {str(e)}")
+
+
+# 하단: 권고표 (로그)
+st.divider()
+st.subheader("📜 리밸런싱 권고 로그")
 
 try:
     log_df = read_log()
 
     if not log_df.empty:
-        # 최신순 정렬
-        log_df_display = log_df.sort_values('date', ascending=False).reset_index(drop=True)
-
-        st.dataframe(log_df_display, use_container_width=True, hide_index=True)
+        st.dataframe(log_df, use_container_width=True, hide_index=True)
 
         # CSV 다운로드
         csv_data = get_csv_download_data(log_df)
 
         st.download_button(
-            label="📥 전체 로그 CSV 다운로드",
+            label="📥 권고 로그 CSV 다운로드",
             data=csv_data,
             file_name=f"vr_log_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     else:
-        st.info("아직 저장된 로그가 없습니다. 계산 후 '로그 저장' 버튼을 눌러주세요.")
+        st.info("아직 저장된 권고 로그가 없습니다. 계산 후 자동으로 저장됩니다.")
 
 except Exception as e:
     st.warning(f"로그 불러오기 실패: {str(e)}")
 
 
+# 하단: 체결표
+st.divider()
+st.subheader("📋 체결 기록")
+
+try:
+    trades_df = read_trades()
+
+    if not trades_df.empty:
+        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+
+        # CSV 다운로드
+        trades_csv_data = get_csv_download_data(trades_df)
+
+        st.download_button(
+            label="📥 체결 기록 CSV 다운로드",
+            data=trades_csv_data,
+            file_name=f"vr_trades_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("아직 저장된 체결 기록이 없습니다. 실제 거래 후 '체결 등록'에서 기록하세요.")
+
+except Exception as e:
+    st.warning(f"체결 기록 불러오기 실패: {str(e)}")
+
+
 # 푸터
 st.divider()
-st.caption("🚀 VR 5.0 TQQQ 리밸런싱 도우미 | 라오어 변동성 리밸런싱 전략")
+st.caption("🚀 VR 5.0 TQQQ 리밸런싱 도우미 | 라오어 변동성 리밸런싱 전략 | 영구 저장 기능")

@@ -3,8 +3,10 @@ VR 5.0 리밸런싱 계산 로직
 라오어 변동성 리밸런싱 알고리즘 구현
 """
 
+from __future__ import annotations
 import math
-from typing import Dict
+from typing import Dict, List
+from dataclasses import dataclass
 
 
 def compute_values(
@@ -125,3 +127,48 @@ def format_action_badge(action_info: Dict[str, any]) -> str:
         return f"SELL {qty} 주"
     else:
         return "HOLD"
+
+
+@dataclass
+class Inputs:
+    """VR 계산 입력값"""
+    price: float
+    shares: int
+    pool: float
+    V_prev: float
+    d: float
+    band: float
+    contrib: float
+
+
+def project_path(V_start: float, r: float, contrib: float, band: float, steps: int) -> List[dict]:
+    """
+    향후 n사이클의 V 경로와 밴드를 프로젝션
+
+    Args:
+        V_start: 시작 목표 가치 (V_next)
+        r: 상승률
+        contrib: 2주 적립금
+        band: 밴드폭
+        steps: 프로젝션할 사이클 수
+
+    Returns:
+        프로젝션 결과 리스트
+        - step: 사이클 번호 (1부터 시작)
+        - V: 목표 가치
+        - low: 하단 밴드
+        - high: 상단 밴드
+    """
+    out = []
+    V = V_start
+
+    for i in range(steps):
+        V = V * r + contrib
+        out.append({
+            "step": i + 1,
+            "V": V,
+            "low": V * (1 - band),
+            "high": V * (1 + band)
+        })
+
+    return out
