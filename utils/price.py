@@ -57,9 +57,9 @@ def fetch_last_price(ticker: str) -> tuple[float, pd.Timestamp]:
 
     # 방법 1) 1분봉 5일
     try:
-        df = yf.download(ticker, period="5d", interval="1m", progress=False, threads=False)
+        df = yf.download(ticker, period="5d", interval="1m", progress=False, threads=False, auto_adjust=True)
         if df is not None and not df.empty:
-            price = float(df["Close"].iloc[-1])
+            price = float(df["Close"].iloc[-1].item())
             ts = _to_ts(df.index[-1])
             return price, ts
     except Exception:
@@ -68,9 +68,9 @@ def fetch_last_price(ticker: str) -> tuple[float, pd.Timestamp]:
     # 방법 2) 일봉 10일
     if price is None:
         try:
-            df = yf.download(ticker, period="10d", interval="1d", progress=False, threads=False)
+            df = yf.download(ticker, period="10d", interval="1d", progress=False, threads=False, auto_adjust=True)
             if df is not None and not df.empty:
-                price = float(df["Close"].iloc[-1])
+                price = float(df["Close"].iloc[-1].item())
                 ts = _to_ts(df.index[-1])
                 return price, ts
         except Exception:
@@ -95,7 +95,7 @@ def fetch_last_price(ticker: str) -> tuple[float, pd.Timestamp]:
             tk = yf.Ticker(ticker)
             df = tk.history(period="5d", interval="1d")
             if df is not None and not df.empty:
-                price = float(df["Close"].iloc[-1])
+                price = float(df["Close"].iloc[-1].item())
                 ts = _to_ts(df.index[-1])
                 return price, ts
         except Exception:
