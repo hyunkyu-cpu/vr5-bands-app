@@ -8,7 +8,10 @@ import pandas as pd
 from datetime import datetime
 import traceback
 
-from utils.vr import compute_values, decide_action, format_action_badge, project_path, generate_price_table
+from utils.vr import (
+    compute_values, decide_action, format_action_badge,
+    project_path, generate_price_table
+)
 from utils.io import (
     save_state, load_state, append_log, read_log,
     append_trade, read_trades, make_biweekly_ics, get_csv_download_data
