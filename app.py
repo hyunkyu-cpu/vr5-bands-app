@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime
 import traceback
 
-from utils.vr import compute_values, decide_action, format_action_badge, project_path
+from utils.vr import compute_values, decide_action, format_action_badge, project_path, generate_price_table
 from utils.io import (
     save_state, load_state, append_log, read_log,
     append_trade, read_trades, make_biweekly_ics, get_csv_download_data
@@ -314,6 +314,98 @@ with col_right:
 
     else:
         st.info("👈 좌측에 정보를 입력하고 '계산하기' 버튼을 눌러주세요")
+
+
+# 하단: 예약 매매표
+st.divider()
+st.subheader("📋 예약 매매표 (가격대별 매수/매도 가이드)")
+
+# 계산 결과가 있을 때만 표시
+last_calc = st.session_state.get('last_calc_result')
+if last_calc and 'vals' in last_calc:
+    vals = last_calc['vals']
+    current_price = st.session_state.get('current_price')
+    shares = st.session_state.get('shares', 0)
+
+    if current_price and shares > 0:
+        # 사이드바 설정
+        with st.expander("⚙️ 예약 매매표 설정"):
+            col_set1, col_set2 = st.columns(2)
+
+            with col_set1:
+                price_step = st.number_input(
+                    "가격 간격 ($)",
+                    min_value=0.1,
+                    max_value=10.0,
+                    value=1.0,
+                    step=0.1,
+                    format="%.1f",
+                    help="각 행의 가격 간격"
+                )
+
+            with col_set2:
+                num_levels = st.number_input(
+                    "위아래 단계 수",
+                    min_value=5,
+                    max_value=30,
+                    value=10,
+                    step=1,
+                    help="현재 가격 기준 위아래 몇 단계씩 표시할지"
+                )
+
+        # 예약 매매표 생성
+        price_table = generate_price_table(
+            current_price=current_price,
+            shares=shares,
+            v_next=vals['v_next'],
+            low=vals['low'],
+            high=vals['high'],
+            price_step=price_step,
+            num_levels=num_levels
+        )
+
+        # DataFrame 변환
+        price_df = pd.DataFrame(price_table)
+
+        # 가격 내림차순 정렬 (높은 가격부터)
+        price_df = price_df.sort_values('price', ascending=False).reset_index(drop=True)
+
+        # 포맷팅
+        price_df['가격'] = price_df['price'].apply(lambda x: f"${x:,.2f}")
+        price_df['액션'] = price_df['action']
+        price_df['수량'] = price_df['qty'].apply(lambda x: f"{x:,}" if x > 0 else "-")
+        price_df['보유주식'] = price_df['total_shares'].apply(lambda x: f"{x:,}")
+        price_df['평가액'] = price_df['pv'].apply(lambda x: f"${x:,.2f}")
+
+        # 현재 가격 행 강조 표시를 위한 스타일링
+        display_df = price_df[['가격', '액션', '수량', '보유주식', '평가액']].copy()
+
+        # 현재 가격에 가장 가까운 행 찾기
+        price_df['price_diff'] = abs(price_df['price'] - current_price)
+        current_idx = price_df['price_diff'].idxmin()
+
+        st.info(f"💡 **현재가: ${current_price:,.2f}** | 목표: ${vals['v_next']:,.2f} | 하단: ${vals['low']:,.2f} | 상단: ${vals['high']:,.2f}")
+
+        # 테이블 표시
+        st.dataframe(
+            display_df,
+            width="stretch",
+            hide_index=True,
+            height=600
+        )
+
+        # CSV 다운로드
+        price_csv = display_df.to_csv(index=False, encoding='utf-8-sig')
+        st.download_button(
+            label="📥 예약 매매표 CSV 다운로드",
+            data=price_csv,
+            file_name=f"vr_price_table_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.warning("⚠️ 현재가와 보유 주식 정보가 필요합니다. 먼저 계산을 수행하세요.")
+else:
+    st.info("👆 먼저 계산하기 버튼을 눌러 VR 계산을 수행하세요.")
 
 
 # 하단: 체결 등록 폼

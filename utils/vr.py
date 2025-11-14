@@ -172,3 +172,77 @@ def project_path(V_start: float, r: float, contrib: float, band: float, steps: i
         })
 
     return out
+
+
+def generate_price_table(
+    current_price: float,
+    shares: int,
+    v_next: float,
+    low: float,
+    high: float,
+    price_step: float = 1.0,
+    num_levels: int = 10
+) -> List[dict]:
+    """
+    가격대별 매수/매도 예약 테이블 생성
+
+    Args:
+        current_price: 현재 주가
+        shares: 현재 보유 주식 수
+        v_next: 목표 가치
+        low: 하단 밴드
+        high: 상단 밴드
+        price_step: 가격 간격 (기본 $1)
+        num_levels: 위아래 몇 단계씩 생성할지 (기본 10단계)
+
+    Returns:
+        가격대별 매매 정보 리스트
+        - price: 가격
+        - action: "매수" | "매도" | "관망"
+        - qty: 수량
+        - total_shares: 거래 후 보유 주식 수
+        - pv: 거래 후 평가액
+    """
+    result = []
+
+    # 현재 가격 기준으로 위아래 num_levels 단계씩
+    for i in range(-num_levels, num_levels + 1):
+        price = current_price + (i * price_step)
+
+        if price <= 0:
+            continue
+
+        # 현재 평가액 (이 가격일 때)
+        pv = price * shares
+
+        # 액션 결정
+        if pv < low:
+            # 매수 - V_next까지 채우기
+            buy_amount = v_next - pv
+            qty = math.ceil(buy_amount / price)
+            action = "매수"
+            total_shares = shares + qty
+        elif pv > high:
+            # 매도 - V_next까지 줄이기
+            sell_amount = pv - v_next
+            qty = math.floor(sell_amount / price)
+            action = "매도"
+            total_shares = shares - qty
+        else:
+            # 밴드 내 - 관망
+            action = "관망"
+            qty = 0
+            total_shares = shares
+
+        # 거래 후 평가액
+        final_pv = price * total_shares
+
+        result.append({
+            "price": price,
+            "action": action,
+            "qty": qty,
+            "total_shares": total_shares,
+            "pv": final_pv
+        })
+
+    return result
