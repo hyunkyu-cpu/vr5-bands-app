@@ -7,6 +7,7 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 import traceback
+from datetime import datetime
 
 from utils.vr import project_path
 from utils.io import load_state
