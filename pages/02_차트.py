@@ -6,11 +6,11 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 import traceback
 
 from utils.vr import project_path
 from utils.io import load_state
+from utils.price import future_dates, _to_ts
 
 
 # 페이지 설정
@@ -140,37 +140,41 @@ if st.button("📊 차트 생성", type="primary"):
 
                 projection = project_path(v_next, r, contrib, band_val, projection_steps)
 
-                # 미래 날짜 생성 (14일 = 2주 단위)
-                future_dates = [now + timedelta(days=14 * i) for i in range(1, projection_steps + 1)]
+                # 미래 날짜 생성 (14일 = 2주 단위) - Timestamp로 통일
+                now_ts = _to_ts(now)
+                proj_dates = future_dates(now_ts, projection_steps, step_days=14)
 
                 # V 경로 (점선)
                 fig.add_trace(go.Scatter(
-                    x=future_dates,
+                    x=proj_dates,
                     y=[p['V'] for p in projection],
                     mode='lines+markers',
                     name='V 프로젝션',
                     line=dict(color='green', width=2, dash='dash'),
-                    marker=dict(size=6)
+                    marker=dict(size=6),
+                    hovertemplate="%{x|%Y-%m-%d} • $%{y:,.0f}<extra></extra>"
                 ))
 
                 # 하단 밴드 프로젝션 (점선)
                 fig.add_trace(go.Scatter(
-                    x=future_dates,
+                    x=proj_dates,
                     y=[p['low'] for p in projection],
                     mode='lines+markers',
                     name='하단 밴드 프로젝션',
                     line=dict(color='red', width=2, dash='dash'),
-                    marker=dict(size=4)
+                    marker=dict(size=4),
+                    hovertemplate="%{x|%Y-%m-%d} • $%{y:,.0f}<extra></extra>"
                 ))
 
                 # 상단 밴드 프로젝션 (점선)
                 fig.add_trace(go.Scatter(
-                    x=future_dates,
+                    x=proj_dates,
                     y=[p['high'] for p in projection],
                     mode='lines+markers',
                     name='상단 밴드 프로젝션',
                     line=dict(color='orange', width=2, dash='dash'),
-                    marker=dict(size=4)
+                    marker=dict(size=4),
+                    hovertemplate="%{x|%Y-%m-%d} • $%{y:,.0f}<extra></extra>"
                 ))
 
         # 레이아웃 설정
@@ -184,7 +188,7 @@ if st.button("📊 차트 생성", type="primary"):
         )
 
         # 차트 표시
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         # 통계 정보
         st.divider()
@@ -211,16 +215,16 @@ if st.button("📊 차트 생성", type="primary"):
             st.subheader("📋 프로젝션 상세")
 
             proj_df = pd.DataFrame(projection)
-            proj_df['date'] = future_dates
+            proj_df['date'] = proj_dates
             proj_df = proj_df[['step', 'date', 'V', 'low', 'high']]
-            proj_df['date'] = proj_df['date'].dt.strftime('%Y-%m-%d')
+            proj_df['date'] = proj_df['date'].apply(lambda x: x.strftime('%Y-%m-%d'))
             proj_df['V'] = proj_df['V'].round(2)
             proj_df['low'] = proj_df['low'].round(2)
             proj_df['high'] = proj_df['high'].round(2)
 
             proj_df.columns = ['사이클', '날짜', 'V (목표)', '하단 밴드', '상단 밴드']
 
-            st.dataframe(proj_df, use_container_width=True, hide_index=True)
+            st.dataframe(proj_df, width="stretch", hide_index=True)
 
     except Exception as e:
         st.error(f"❌ 오류 발생: {str(e)}")

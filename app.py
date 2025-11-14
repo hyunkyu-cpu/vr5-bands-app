@@ -4,7 +4,6 @@ Streamlit 메인 애플리케이션 - 영구 저장 및 매수/매도 로그 기
 """
 
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import traceback
@@ -14,6 +13,7 @@ from utils.io import (
     save_state, load_state, append_log, read_log,
     append_trade, read_trades, make_biweekly_ics, get_csv_download_data
 )
+from utils.price import fetch_last_price
 
 
 # 페이지 설정
@@ -47,19 +47,7 @@ if 'initialized' not in st.session_state:
     st.session_state.initialized = True
 
 
-def get_current_price(ticker: str) -> float:
-    """yfinance로 현재 주가 조회"""
-    try:
-        stock = yf.Ticker(ticker)
-        data = stock.history(period='1d')
-
-        if data.empty:
-            raise Exception(f"{ticker} 데이터를 가져올 수 없습니다.")
-
-        return float(data['Close'].iloc[-1])
-
-    except Exception as e:
-        raise Exception(f"가격 조회 실패: {str(e)}")
+# 가격 조회 함수는 utils.price.fetch_last_price 사용
 
 
 # 타이틀
@@ -73,8 +61,9 @@ ticker_for_price = st.session_state.get('ticker', 'TQQQ')
 try:
     if st.session_state.current_price is None or st.session_state.last_update is None:
         with st.spinner(f"{ticker_for_price} 실시간 가격 조회 중..."):
-            st.session_state.current_price = get_current_price(ticker_for_price)
-            st.session_state.last_update = datetime.now()
+            price, price_ts = fetch_last_price(ticker_for_price)
+            st.session_state.current_price = price
+            st.session_state.last_update = str(price_ts)
 
     # 가격 표시
     col_price1, col_price2, col_price3 = st.columns([2, 2, 1])
@@ -86,13 +75,13 @@ try:
         )
     with col_price2:
         if st.session_state.last_update:
-            time_str = st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')
-            st.caption(f"🕐 마지막 업데이트: {time_str}")
+            st.caption(f"🕐 기준시각: {st.session_state.last_update}")
     with col_price3:
         if st.button("🔄 새로고침", type="secondary"):
             with st.spinner("가격 업데이트 중..."):
-                st.session_state.current_price = get_current_price(ticker_for_price)
-                st.session_state.last_update = datetime.now()
+                price, price_ts = fetch_last_price(ticker_for_price)
+                st.session_state.current_price = price
+                st.session_state.last_update = str(price_ts)
                 st.rerun()
 
 except Exception as e:
@@ -181,7 +170,7 @@ with col_left:
     st.divider()
 
     # 계산 버튼
-    calculate_button = st.button("🧮 계산하기", type="primary", use_container_width=True)
+    calculate_button = st.button("🧮 계산하기", type="primary", width="stretch")
 
 
 # 우측 컬럼: 결과
@@ -192,9 +181,9 @@ with col_right:
         try:
             # 1. 현재가 조회
             with st.spinner(f"{ticker} 현재가 조회 중..."):
-                current_price = get_current_price(ticker)
+                current_price, price_ts = fetch_last_price(ticker)
 
-            st.success(f"✅ {ticker} 현재가: **${current_price:,.2f}**")
+            st.success(f"✅ {ticker} 현재가: **${current_price:,.2f}** (기준: {price_ts})")
 
             # 2. 계산 수행
             vals = compute_values(
@@ -299,7 +288,7 @@ with col_right:
                 ]
             })
 
-            st.dataframe(result_df, use_container_width=True, hide_index=True)
+            st.dataframe(result_df, width="stretch", hide_index=True)
 
             # 8. ICS 다운로드
             st.divider()
@@ -311,7 +300,7 @@ with col_right:
                     data=ics_data,
                     file_name=f"vr_reminder_{datetime.now().strftime('%Y%m%d')}.ics",
                     mime="text/calendar",
-                    use_container_width=True
+                    width="stretch"
                 )
             except Exception as e:
                 st.error(f"❌ ICS 생성 실패: {str(e)}")
@@ -363,7 +352,7 @@ try:
     log_df = read_log()
 
     if not log_df.empty:
-        st.dataframe(log_df, use_container_width=True, hide_index=True)
+        st.dataframe(log_df, width="stretch", hide_index=True)
 
         # CSV 다운로드
         csv_data = get_csv_download_data(log_df)
@@ -389,7 +378,7 @@ try:
     trades_df = read_trades()
 
     if not trades_df.empty:
-        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+        st.dataframe(trades_df, width="stretch", hide_index=True)
 
         # CSV 다운로드
         trades_csv_data = get_csv_download_data(trades_df)
